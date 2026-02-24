@@ -73,8 +73,15 @@ async function softDelete(id) {
   return result.rows[0] || null;
 }
 
+async function getById(id) {
+  const sql = `SELECT * FROM request_attachments WHERE id = $1 LIMIT 1`;
+  const result = await pool.query(sql, [id]);
+  return result.rows[0] || null;
+}
+
 module.exports = {
   listByRequestId,
+  getById,
   create,
   update,
   softDelete

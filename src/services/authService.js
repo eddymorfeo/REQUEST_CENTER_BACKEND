@@ -3,7 +3,6 @@ const { verifyPassword } = require('../utils/password');
 const { signAccessToken } = require('../utils/jwt');
 const { AppError } = require('../utils/appError');
 const { HttpStatus } = require('../utils/httpStatus');
-const { email } = require('zod');
 
 const login = async ({ username, password }) => {
   const user = await userRepository.findByUsernameWithPasswordHash(username);
@@ -32,6 +31,7 @@ const login = async ({ username, password }) => {
       id: user.id,
       username: user.username,
       fullName: user.full_name,
+      email: user.email,
       roleCode: user.role_code
     }
   };
