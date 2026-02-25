@@ -15,6 +15,7 @@ const { requestAttachmentsRouter } = require('./requestAttachmentsRoutes');
 const { requestStatusHistoryRouter } = require('./requestStatusHistoryRoutes');
 const { requestAssignmentsRouter } = require('./requestAssignmentsRoutes');
 const { boardEventsRouter } = require('./boardEventsRoutes');
+const { metricsRouter } = require('./metricsRoutes');
 
 const router = express.Router();
 
@@ -36,5 +37,6 @@ router.use('/request-attachments', requireAuth, requestAttachmentsRouter);
 router.use('/request-status-history', requireAuth, requestStatusHistoryRouter);
 router.use('/request-assignments', requireAuth, requestAssignmentsRouter);
 router.use('/board-events', requireAuth, boardEventsRouter);
+router.use('/metrics', requireAuth, metricsRouter);
 
 module.exports = { apiRouter: router };
