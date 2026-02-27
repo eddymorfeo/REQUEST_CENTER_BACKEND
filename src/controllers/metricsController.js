@@ -36,6 +36,16 @@ const getMetricsProcessTime = async (req, res) => {
   res.status(HttpStatus.OK).json({ success: true, data: result });
 };
 
+const getMetricsRequestTimes = async (req, res) => {
+  const result = await metricsService.getRequestTimes(req.validated.query);
+  res.status(HttpStatus.OK).json({ success: true, data: result });
+};
+
+const getMetricsRequestTimesLive = async (req, res) => {
+  const result = await metricsService.getRequestTimesLive(req.validated.query);
+  return res.status(HttpStatus.OK).json({ success: true, data: result });
+};
+
 module.exports = {
   getMetricsOverview,
   getMetricsThroughput,
@@ -43,5 +53,7 @@ module.exports = {
   getMetricsStatusTime,
   getMetricsWorkload,
   getMetricsDistribution,
-  getMetricsProcessTime
+  getMetricsProcessTime,
+  getMetricsRequestTimes,
+  getMetricsRequestTimesLive
 };

@@ -147,6 +147,11 @@ async function getStatusTime(query) {
       code: r.code,
       name: r.name,
       countTransitions: Number(r.count_transitions || 0),
+
+      minHours: r.min_h !== null ? Number(r.min_h) : 0,
+      maxHours: r.max_h !== null ? Number(r.max_h) : 0,
+      avgHours: r.avg_h !== null ? Number(r.avg_h) : 0,
+
       timeHours: {
         p50: r.p50_h !== null ? Number(r.p50_h) : 0,
         p90: r.p90_h !== null ? Number(r.p90_h) : 0
@@ -272,6 +277,103 @@ async function getProcessTime(query) {
   };
 }
 
+async function getRequestTimes(query) {
+  const { fromIso, toIso } = resolveRange(query.dateFrom, query.dateTo);
+
+  const rows = await metricsRepository.getRequestTimes({
+    dateFrom: fromIso,
+    dateTo: toIso,
+    statusId: query.statusId || null,
+    requestTypeId: query.requestTypeId || null,
+    priorityId: query.priorityId || null,
+    assigneeId: query.assigneeId || null,
+  });
+
+  return {
+    range: { dateFrom: fromIso, dateTo: toIso },
+    items: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      statusId: r.status_id,
+      statusCode: r.status_code,
+      statusName: r.status_name,
+      typeName: r.type_name,
+      priorityName: r.priority_name,
+      assigneeName: r.assignee_name ?? "Sin asignar",
+      assigneeUsername: r.assignee_username ?? "",
+      createdAt: r.created_at,
+      closedAt: r.closed_at,
+      unassignedHours: Number(r.unassigned_h || 0),
+      assignedHours: Number(r.assigned_h || 0),
+      inProgressHours: Number(r.in_progress_h || 0),
+      totalHours: Number(r.total_h || 0),
+    })),
+  };
+}
+
+async function getRequestTimesLive(query) {
+  const { fromIso, toIso } = resolveRange(query.dateFrom, query.dateTo);
+
+  const repoArgs = {
+    dateFrom: fromIso,
+    dateTo: toIso,
+    statusId: query.statusId || null,
+    requestTypeId: query.requestTypeId || null,
+    priorityId: query.priorityId || null,
+    assigneeId: query.assigneeId || null,
+    includeClosed: query.includeClosed === 'true' || query.includeClosed === true,
+  };
+
+  // ✅ NUEVO: stats para abiertas (closed_at IS NULL) -> min/max/avg total_h
+  const [rows, statsRow] = await Promise.all([
+    metricsRepository.getRequestTimesLive(repoArgs),
+    metricsRepository.getRequestTimesLiveStats({
+      dateFrom: fromIso,
+      dateTo: toIso,
+      statusId: query.statusId || null,
+      requestTypeId: query.requestTypeId || null,
+      priorityId: query.priorityId || null,
+      assigneeId: query.assigneeId || null,
+    }),
+  ]);
+
+  const toNum = (v) => (v === null || v === undefined ? 0 : Number(v));
+
+  return {
+    range: { dateFrom: fromIso, dateTo: toIso },
+
+    // ✅ NUEVO: stats (solo abiertas)
+    stats: {
+      openTotalHours: {
+        min: toNum(statsRow?.min_h),
+        max: toNum(statsRow?.max_h),
+        avg: toNum(statsRow?.avg_h),
+      },
+    },
+
+    items: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      statusId: r.status_id,
+      statusCode: r.status_code,
+      statusName: r.status_name,
+      typeName: r.type_name,
+      priorityName: r.priority_name,
+      assigneeName: r.assignee_name ?? "Sin asignar",
+      assigneeUsername: r.assignee_username ?? "",
+      createdAt: r.created_at,
+      closedAt: r.closed_at,
+      endAt: r.end_at,
+
+      unassignedHours: Number(r.unassigned_h || 0),
+      assignedHours: Number(r.assigned_h || 0),
+      inProgressHours: Number(r.in_progress_h || 0),
+      totalHours: Number(r.total_h || 0),
+      currentStatusHours: Number(r.current_status_h || 0),
+    })),
+  };
+}
+
 module.exports = {
   getOverview,
   getThroughput,
@@ -279,5 +381,7 @@ module.exports = {
   getStatusTime,
   getWorkload,
   getDistribution,
-  getProcessTime
+  getProcessTime,
+  getRequestTimes,
+  getRequestTimesLive
 };

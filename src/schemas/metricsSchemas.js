@@ -115,6 +115,37 @@ const schemaGetMetricsProcessTime = z.object({
   body: z.any().optional()
 });
 
+const requestTimesQuery = z.object({
+  dateFrom: isoDateOnly.optional(),
+  dateTo: isoDateOnly.optional(),
+  statusId: uuid.optional(),
+  requestTypeId: uuid.optional(),
+  priorityId: uuid.optional(),
+  assigneeId: uuid.optional(),
+});
+
+const schemaGetMetricsRequestTimes = z.object({
+  query: requestTimesQuery,
+  params: z.object({}).optional(),
+  body: z.any().optional(),
+});
+
+const requestTimesLiveQuery = z.object({
+  dateFrom: isoDateOnly.optional(),
+  dateTo: isoDateOnly.optional(),
+  statusId: uuid.optional(),
+  requestTypeId: uuid.optional(),
+  priorityId: uuid.optional(),
+  assigneeId: uuid.optional(),
+  includeClosed: z.union([z.string(), z.boolean()]).optional(),
+});
+
+const schemaGetMetricsRequestTimesLive = z.object({
+  query: requestTimesLiveQuery,
+  params: z.object({}).optional(),
+  body: z.any().optional(),
+});
+
 module.exports = {
   schemaGetMetricsOverview,
   schemaGetMetricsThroughput,
@@ -122,5 +153,7 @@ module.exports = {
   schemaGetMetricsStatusTime,
   schemaGetMetricsDistribution,
   schemaGetMetricsProcessTime,
-  schemaGetMetricsWorkload
+  schemaGetMetricsWorkload,
+  schemaGetMetricsRequestTimes,
+  schemaGetMetricsRequestTimesLive
 };

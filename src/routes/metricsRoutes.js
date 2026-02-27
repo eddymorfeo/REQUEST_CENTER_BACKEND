@@ -2,7 +2,15 @@ const express = require('express');
 const metricsController = require('../controllers/metricsController');
 const { asyncHandler } = require('../middlewares/asyncHandler');
 const { validate } = require('../middlewares/validate');
-const { schemaGetMetricsOverview, schemaGetMetricsThroughput, schemaGetMetricsTimeStats, schemaGetMetricsStatusTime, schemaGetMetricsWorkload, schemaGetMetricsDistribution, schemaGetMetricsProcessTime } = require('../schemas/metricsSchemas');
+const { schemaGetMetricsOverview, 
+        schemaGetMetricsThroughput, 
+        schemaGetMetricsTimeStats, 
+        schemaGetMetricsStatusTime, 
+        schemaGetMetricsWorkload, 
+        schemaGetMetricsDistribution, 
+        schemaGetMetricsProcessTime,
+        schemaGetMetricsRequestTimes,
+        schemaGetMetricsRequestTimesLive } = require('../schemas/metricsSchemas');
 
 const router = express.Router();
 
@@ -13,6 +21,8 @@ router.get('/status-time', validate(schemaGetMetricsStatusTime), asyncHandler(me
 router.get('/workload', validate(schemaGetMetricsWorkload), asyncHandler(metricsController.getMetricsWorkload));
 router.get('/distribution', validate(schemaGetMetricsDistribution), asyncHandler(metricsController.getMetricsDistribution));
 router.get('/process-time', validate(schemaGetMetricsProcessTime), asyncHandler(metricsController.getMetricsProcessTime));
+router.get('/request-times', validate(schemaGetMetricsRequestTimes), asyncHandler(metricsController.getMetricsRequestTimes));
+router.get('/request-times-live', validate(schemaGetMetricsRequestTimesLive), asyncHandler(metricsController.getMetricsRequestTimesLive));
 
 
 module.exports = { metricsRouter: router };

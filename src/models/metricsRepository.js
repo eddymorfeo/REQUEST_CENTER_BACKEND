@@ -1,7 +1,6 @@
 const { pool } = require('../configs/db');
 
 async function getOverviewKpis({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
-    // Si no viene rango, dejamos que service ponga defaults (30 días)
     const sql = `
     SELECT
       COUNT(*) FILTER (WHERE r.closed_at IS NULL AND r.is_active = true) AS backlog_total,
@@ -95,14 +94,13 @@ async function getBacklogByStatus({ statusId, requestTypeId, priorityId, assigne
 async function getThroughput({
     dateFrom,
     dateTo,
-    groupByUnit,      // 'day' | 'week' | 'month' (whitelist desde service)
-    intervalLiteral,  // '1 day' | '1 week' | '1 month'
+    groupByUnit,
+    intervalLiteral,
     statusId,
     requestTypeId,
     priorityId,
     assigneeId
 }) {
-    // groupByUnit e intervalLiteral vienen sanitizados desde service (whitelist).
     const sql = `
     WITH
     series AS (
@@ -209,12 +207,8 @@ async function getTimeStats({ dateFrom, dateTo, statusId, requestTypeId, priorit
     )
     SELECT
       COUNT(*)::int AS total_closed,
-
-      -- Lead time percentiles (created -> closed)
       ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY lead_hours)::numeric, 2) AS lead_p50_h,
       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY lead_hours)::numeric, 2) AS lead_p90_h,
-
-      -- Cycle time percentiles (first_assigned -> closed) (solo donde first_assigned exista)
       ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cycle_hours)::numeric, 2) AS cycle_p50_h,
       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY cycle_hours)::numeric, 2) AS cycle_p90_h
     FROM base
@@ -235,7 +229,7 @@ async function getTimeStats({ dateFrom, dateTo, statusId, requestTypeId, priorit
 }
 
 async function getStatusTime({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
-  const sql = `
+    const sql = `
     WITH filtered_requests AS (
       SELECT r.id, r.closed_at
       FROM requests r
@@ -248,6 +242,7 @@ async function getStatusTime({ dateFrom, dateTo, statusId, requestTypeId, priori
             SELECT 1
             FROM request_assignments ra
             WHERE ra.request_id = r.id
+              AND ra.is_active = true
               AND ra.assigned_to = $3
           )
         )
@@ -294,22 +289,20 @@ async function getStatusTime({ dateFrom, dateTo, statusId, requestTypeId, priori
     ORDER BY rs.sort_order ASC, rs.id ASC
   `;
 
-  const params = [
-    requestTypeId || null,
-    priorityId || null,
-    assigneeId || null,
-    dateFrom,
-    dateTo,
-    statusId || null
-  ];
+    const params = [
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null,
+        dateFrom,
+        dateTo,
+        statusId || null
+    ];
 
-  const { rows } = await pool.query(sql, params);
-  return rows;
+    const { rows } = await pool.query(sql, params);
+    return rows;
 }
 
 async function getWorkloadBacklogByAssignee({ statusId, requestTypeId, priorityId }) {
-    // “Backlog por analista” se define por la asignación activa (request_assignments.is_active=true)
-    // y requests abiertas (closed_at is null).
     const sql = `
     SELECT
       u.id AS assignee_id,
@@ -341,15 +334,6 @@ async function getWorkloadBacklogByAssignee({ statusId, requestTypeId, priorityI
 }
 
 async function getWorkloadActivityByAssignee({ dateFrom, dateTo, statusId, requestTypeId, priorityId }) {
-    // “Actividad en rango”:
-    // - created: requests creadas en rango, agrupadas por created_by (actor)
-    // - closed: requests cerradas en rango, atribuida al “assignee actual” (si existe) o null
-    // - reassignments: cantidad de veces que hubo reasignación en rango (asignaciones nuevas)
-    //
-    // Para closed: como no tienes "closed_by" en requests, lo más consistente es atribuirlo al assigned_to activo
-    // (si el request está cerrado, idealmente debería seguir existiendo una última asignación activa o al menos la última asignación).
-    // Si en tu data al cerrar desactivas la asignación, podríamos usar "última asignación" en vez de is_active.
-
     const sql = `
     WITH
     created AS (
@@ -437,16 +421,14 @@ async function getWorkloadActivityByAssignee({ dateFrom, dateTo, statusId, reque
 }
 
 async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
-  // Abiertas = closed_at IS NULL
-  // assignee: si no tiene asignación activa, cae en "Sin asignar"
-  const paramsBase = [
-    statusId || null,
-    requestTypeId || null,
-    priorityId || null,
-    assigneeId || null
-  ];
+    const paramsBase = [
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null
+    ];
 
-  const statusSql = `
+    const statusSql = `
     SELECT rs.id, rs.code, rs.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_status rs ON rs.id = r.status_id
@@ -458,14 +440,16 @@ async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, 
       AND (
         $4::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $4
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $4
         )
       )
     GROUP BY rs.id, rs.code, rs.name, rs.sort_order
     ORDER BY rs.sort_order ASC, rs.id ASC
   `;
 
-  const prioritySql = `
+    const prioritySql = `
     SELECT rp.id, rp.code, rp.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_priorities rp ON rp.id = r.priority_id
@@ -477,14 +461,16 @@ async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, 
       AND (
         $4::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $4
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $4
         )
       )
     GROUP BY rp.id, rp.code, rp.name, rp.sort_order
     ORDER BY rp.sort_order ASC, rp.id ASC
   `;
 
-  const typeSql = `
+    const typeSql = `
     SELECT rt.id, rt.code, rt.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_types rt ON rt.id = r.request_type_id
@@ -496,14 +482,16 @@ async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, 
       AND (
         $4::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $4
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $4
         )
       )
     GROUP BY rt.id, rt.code, rt.name
     ORDER BY count DESC, rt.name ASC
   `;
 
-  const assigneeSql = `
+    const assigneeSql = `
     WITH base AS (
       SELECT
         r.id,
@@ -523,7 +511,9 @@ async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, 
         AND (
           $4::uuid is null OR EXISTS (
             SELECT 1 FROM request_assignments ra2
-            WHERE ra2.request_id = r.id AND ra2.assigned_to = $4
+            WHERE ra2.request_id = r.id
+              AND ra2.is_active = true
+              AND ra2.assigned_to = $4
           )
         )
     )
@@ -538,33 +528,32 @@ async function getDistributionOpen({ dateFrom, dateTo, statusId, requestTypeId, 
     ORDER BY count DESC, full_name ASC
   `;
 
-  const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
-    pool.query(statusSql, paramsBase),
-    pool.query(prioritySql, paramsBase),
-    pool.query(typeSql, paramsBase),
-    pool.query(assigneeSql, paramsBase)
-  ]);
+    const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
+        pool.query(statusSql, paramsBase),
+        pool.query(prioritySql, paramsBase),
+        pool.query(typeSql, paramsBase),
+        pool.query(assigneeSql, paramsBase)
+    ]);
 
-  return {
-    status: statusRes.rows,
-    priority: priorityRes.rows,
-    type: typeRes.rows,
-    assignee: assigneeRes.rows
-  };
+    return {
+        status: statusRes.rows,
+        priority: priorityRes.rows,
+        type: typeRes.rows,
+        assignee: assigneeRes.rows
+    };
 }
 
 async function getDistributionCreated({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
-  // Creadas en período = created_at rango
-  const paramsBase = [
-    dateFrom,
-    dateTo,
-    statusId || null,
-    requestTypeId || null,
-    priorityId || null,
-    assigneeId || null
-  ];
+    const paramsBase = [
+        dateFrom,
+        dateTo,
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null
+    ];
 
-  const statusSql = `
+    const statusSql = `
     SELECT rs.id, rs.code, rs.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_status rs ON rs.id = r.status_id
@@ -576,14 +565,16 @@ async function getDistributionCreated({ dateFrom, dateTo, statusId, requestTypeI
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rs.id, rs.code, rs.name, rs.sort_order
     ORDER BY rs.sort_order ASC, rs.id ASC
   `;
 
-  const prioritySql = `
+    const prioritySql = `
     SELECT rp.id, rp.code, rp.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_priorities rp ON rp.id = r.priority_id
@@ -595,14 +586,16 @@ async function getDistributionCreated({ dateFrom, dateTo, statusId, requestTypeI
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rp.id, rp.code, rp.name, rp.sort_order
     ORDER BY rp.sort_order ASC, rp.id ASC
   `;
 
-  const typeSql = `
+    const typeSql = `
     SELECT rt.id, rt.code, rt.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_types rt ON rt.id = r.request_type_id
@@ -614,15 +607,16 @@ async function getDistributionCreated({ dateFrom, dateTo, statusId, requestTypeI
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rt.id, rt.code, rt.name
     ORDER BY count DESC, rt.name ASC
   `;
 
-  // creadas por analista = created_by
-  const assigneeSql = `
+    const assigneeSql = `
     SELECT
       u.id,
       u.username,
@@ -640,34 +634,32 @@ async function getDistributionCreated({ dateFrom, dateTo, statusId, requestTypeI
     ORDER BY count DESC, u.full_name ASC
   `;
 
-  const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
-    pool.query(statusSql, paramsBase),
-    pool.query(prioritySql, paramsBase),
-    pool.query(typeSql, paramsBase),
-    pool.query(assigneeSql, paramsBase)
-  ]);
+    const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
+        pool.query(statusSql, paramsBase),
+        pool.query(prioritySql, paramsBase),
+        pool.query(typeSql, paramsBase),
+        pool.query(assigneeSql, paramsBase)
+    ]);
 
-  return {
-    status: statusRes.rows,
-    priority: priorityRes.rows,
-    type: typeRes.rows,
-    assignee: assigneeRes.rows
-  };
+    return {
+        status: statusRes.rows,
+        priority: priorityRes.rows,
+        type: typeRes.rows,
+        assignee: assigneeRes.rows
+    };
 }
 
 async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
-  // Terminadas en período = closed_at rango
-  // cerradas por analista: atribuimos al "último asignado" (última asignación por fecha)
-  const paramsBase = [
-    dateFrom,
-    dateTo,
-    statusId || null,
-    requestTypeId || null,
-    priorityId || null,
-    assigneeId || null
-  ];
+    const paramsBase = [
+        dateFrom,
+        dateTo,
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null
+    ];
 
-  const statusSql = `
+    const statusSql = `
     SELECT rs.id, rs.code, rs.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_status rs ON rs.id = r.status_id
@@ -680,14 +672,16 @@ async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rs.id, rs.code, rs.name, rs.sort_order
     ORDER BY rs.sort_order ASC, rs.id ASC
   `;
 
-  const prioritySql = `
+    const prioritySql = `
     SELECT rp.id, rp.code, rp.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_priorities rp ON rp.id = r.priority_id
@@ -700,14 +694,16 @@ async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rp.id, rp.code, rp.name, rp.sort_order
     ORDER BY rp.sort_order ASC, rp.id ASC
   `;
 
-  const typeSql = `
+    const typeSql = `
     SELECT rt.id, rt.code, rt.name, COUNT(*)::int AS count
     FROM requests r
     JOIN request_types rt ON rt.id = r.request_type_id
@@ -720,14 +716,16 @@ async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId
       AND (
         $6::uuid is null OR EXISTS (
           SELECT 1 FROM request_assignments ra
-          WHERE ra.request_id = r.id AND ra.assigned_to = $6
+          WHERE ra.request_id = r.id
+            AND ra.is_active = true
+            AND ra.assigned_to = $6
         )
       )
     GROUP BY rt.id, rt.code, rt.name
     ORDER BY count DESC, rt.name ASC
   `;
 
-  const assigneeSql = `
+    const assigneeSql = `
     WITH last_assignee AS (
       SELECT
         r.id AS request_id,
@@ -748,7 +746,9 @@ async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId
         AND (
           $6::uuid is null OR EXISTS (
             SELECT 1 FROM request_assignments ra2
-            WHERE ra2.request_id = r.id AND ra2.assigned_to = $6
+            WHERE ra2.request_id = r.id
+              AND ra2.is_active = true
+              AND ra2.assigned_to = $6
           )
         )
     )
@@ -763,31 +763,31 @@ async function getDistributionClosed({ dateFrom, dateTo, statusId, requestTypeId
     ORDER BY count DESC, full_name ASC
   `;
 
-  const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
-    pool.query(statusSql, paramsBase),
-    pool.query(prioritySql, paramsBase),
-    pool.query(typeSql, paramsBase),
-    pool.query(assigneeSql, paramsBase)
-  ]);
+    const [statusRes, priorityRes, typeRes, assigneeRes] = await Promise.all([
+        pool.query(statusSql, paramsBase),
+        pool.query(prioritySql, paramsBase),
+        pool.query(typeSql, paramsBase),
+        pool.query(assigneeSql, paramsBase)
+    ]);
 
-  return {
-    status: statusRes.rows,
-    priority: priorityRes.rows,
-    type: typeRes.rows,
-    assignee: assigneeRes.rows
-  };
+    return {
+        status: statusRes.rows,
+        priority: priorityRes.rows,
+        type: typeRes.rows,
+        assignee: assigneeRes.rows
+    };
 }
 
 async function getProcessTimeStats({
-  dateFrom,
-  dateTo,
-  statusId,
-  requestTypeId,
-  priorityId,
-  assigneeId,
-  inProgressStatusCode
+    dateFrom,
+    dateTo,
+    statusId,
+    requestTypeId,
+    priorityId,
+    assigneeId,
+    inProgressStatusCode
 }) {
-  const sql = `
+    const sql = `
     WITH inprog AS (
       SELECT id
       FROM request_status
@@ -805,7 +805,8 @@ async function getProcessTimeStats({
           JOIN inprog ip ON ip.id = h.to_status_id
           WHERE h.request_id = r.id
             AND h.is_active = true
-        ) AS inprog_start
+        ) AS inprog_start,
+        r.closed_at AS closed_at
       FROM requests r
       WHERE r.is_active = true
         AND r.closed_at IS NOT NULL
@@ -817,7 +818,9 @@ async function getProcessTimeStats({
         AND (
           $6::uuid is null OR EXISTS (
             SELECT 1 FROM request_assignments ra
-            WHERE ra.request_id = r.id AND ra.assigned_to = $6
+            WHERE ra.request_id = r.id
+              AND ra.is_active = true
+              AND ra.assigned_to = $6
           )
         )
     ),
@@ -825,8 +828,11 @@ async function getProcessTimeStats({
       SELECT
         lead_h,
         cycle_h,
-        EXTRACT(EPOCH FROM ( (SELECT (closed_at) FROM requests rr WHERE rr.id = b.id) - b.inprog_start))/3600.0 AS inprog_h
-      FROM base b
+        CASE
+          WHEN inprog_start IS NULL THEN NULL
+          ELSE EXTRACT(EPOCH FROM (closed_at - inprog_start))/3600.0
+        END AS inprog_h
+      FROM base
     )
     SELECT
       COUNT(*)::int AS total_closed,
@@ -852,6 +858,327 @@ async function getProcessTimeStats({
     WHERE lead_h IS NOT NULL
   `;
 
+    const params = [
+        dateFrom,
+        dateTo,
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null,
+        inProgressStatusCode
+    ];
+
+    const { rows } = await pool.query(sql, params);
+    return rows[0];
+}
+
+async function getRequestTimes({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
+    const sql = `
+    WITH base AS (
+      SELECT
+        r.id,
+        r.title,
+        r.created_at,
+        r.closed_at,
+        r.status_id,
+        rs.code AS status_code,
+        rs.name AS status_name,
+        rt.name AS type_name,
+        rp.name AS priority_name,
+        (
+          SELECT ra.assigned_to
+          FROM request_assignments ra
+          WHERE ra.request_id = r.id
+          ORDER BY ra.assigned_at DESC
+          LIMIT 1
+        ) AS assignee_id
+      FROM requests r
+      JOIN request_status rs ON rs.id = r.status_id
+      JOIN request_types rt ON rt.id = r.request_type_id
+      JOIN request_priorities rp ON rp.id = r.priority_id
+      WHERE
+        r.is_active = true
+        AND r.closed_at IS NOT NULL
+        AND r.closed_at >= $1::timestamptz
+        AND r.closed_at <= $2::timestamptz
+        AND ($3::uuid IS NULL OR r.status_id = $3)
+        AND ($4::uuid IS NULL OR r.request_type_id = $4)
+        AND ($5::uuid IS NULL OR r.priority_id = $5)
+        AND (
+          $6::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM request_assignments ra2
+            WHERE ra2.request_id = r.id
+              AND ra2.assigned_to = $6
+          )
+        )
+    ),
+    marks AS (
+      SELECT
+        b.*,
+
+        -- primer momento en que entró a ASSIGNED
+        (
+          SELECT MIN(h.changed_at)
+          FROM request_status_history h
+          WHERE h.request_id = b.id
+            AND h.is_active = true
+            AND h.to_status_id = (
+              SELECT id FROM request_status WHERE UPPER(code) = 'ASSIGNED' LIMIT 1
+            )
+        ) AS first_assigned_at,
+
+        -- primer momento en que entró a IN_PROGRESS
+        (
+          SELECT MIN(h.changed_at)
+          FROM request_status_history h
+          WHERE h.request_id = b.id
+            AND h.is_active = true
+            AND h.to_status_id = (
+              SELECT id FROM request_status WHERE UPPER(code) = 'IN_PROGRESS' LIMIT 1
+            )
+        ) AS first_in_progress_at
+
+      FROM base b
+    )
+    SELECT
+      m.id,
+      m.title,
+      m.status_id,
+      m.status_code,
+      m.status_name,
+      m.type_name,
+      m.priority_name,
+      u.full_name AS assignee_name,
+      u.username AS assignee_username,
+      m.created_at,
+      m.closed_at,
+
+      -- Sin asignar: created -> first ASSIGNED (o closed si nunca pasó)
+      ROUND(EXTRACT(EPOCH FROM (COALESCE(m.first_assigned_at, m.closed_at) - m.created_at)) / 3600.0, 2) AS unassigned_h,
+
+      -- Asignado: ASSIGNED -> IN_PROGRESS (fallbacks seguros)
+      ROUND(EXTRACT(EPOCH FROM (COALESCE(m.first_in_progress_at, m.closed_at) - COALESCE(m.first_assigned_at, m.created_at))) / 3600.0, 2) AS assigned_h,
+
+      -- En progreso: IN_PROGRESS -> closed (fallbacks seguros)
+      ROUND(EXTRACT(EPOCH FROM (m.closed_at - COALESCE(m.first_in_progress_at, COALESCE(m.first_assigned_at, m.created_at)))) / 3600.0, 2) AS in_progress_h,
+
+      -- Total: created -> closed
+      ROUND(EXTRACT(EPOCH FROM (m.closed_at - m.created_at)) / 3600.0, 2) AS total_h
+
+    FROM marks m
+    LEFT JOIN users u ON u.id = m.assignee_id
+    ORDER BY total_h DESC, m.closed_at DESC;
+  `;
+
+    const params = [
+        dateFrom,
+        dateTo,
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null,
+    ];
+
+    const { rows } = await pool.query(sql, params);
+    return rows;
+}
+
+async function getRequestTimesLive({
+    dateFrom,
+    dateTo,
+    statusId,
+    requestTypeId,
+    priorityId,
+    assigneeId,
+    includeClosed,
+}) {
+    const sql = `
+    WITH base AS (
+      SELECT
+        r.id,
+        r.title,
+        r.created_at,
+        r.closed_at,
+        COALESCE(r.closed_at, NOW()) AS end_at,
+        r.status_id,
+        rs.code AS status_code,
+        rs.name AS status_name,
+        rt.name AS type_name,
+        rp.name AS priority_name,
+        (
+          SELECT ra.assigned_to
+          FROM request_assignments ra
+          WHERE ra.request_id = r.id
+          ORDER BY ra.assigned_at DESC
+          LIMIT 1
+        ) AS assignee_id
+      FROM requests r
+      JOIN request_status rs ON rs.id = r.status_id
+      JOIN request_types rt ON rt.id = r.request_type_id
+      JOIN request_priorities rp ON rp.id = r.priority_id
+      WHERE
+        r.is_active = true
+        AND r.created_at >= $1::timestamptz
+        AND r.created_at <= $2::timestamptz
+        AND ($3::uuid IS NULL OR r.status_id = $3)
+        AND ($4::uuid IS NULL OR r.request_type_id = $4)
+        AND ($5::uuid IS NULL OR r.priority_id = $5)
+        AND (
+          $6::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM request_assignments ra2
+            WHERE ra2.request_id = r.id
+              AND ra2.assigned_to = $6
+          )
+        )
+        AND (
+          $7::boolean = true OR r.closed_at IS NULL
+        )
+    ),
+    marks AS (
+      SELECT
+        b.*,
+
+        (
+          SELECT MIN(h.changed_at)
+          FROM request_status_history h
+          WHERE h.request_id = b.id
+            AND h.is_active = true
+            AND h.to_status_id = (
+              SELECT id FROM request_status WHERE UPPER(code) = 'ASSIGNED' LIMIT 1
+            )
+        ) AS first_assigned_at,
+
+        (
+          SELECT MIN(h.changed_at)
+          FROM request_status_history h
+          WHERE h.request_id = b.id
+            AND h.is_active = true
+            AND h.to_status_id = (
+              SELECT id FROM request_status WHERE UPPER(code) = 'IN_PROGRESS' LIMIT 1
+            )
+        ) AS first_in_progress_at,
+
+        -- Momento en que entró al estado ACTUAL (para calcular "tiempo en estado actual")
+        COALESCE((
+          SELECT MAX(h.changed_at)
+          FROM request_status_history h
+          WHERE h.request_id = b.id
+            AND h.is_active = true
+            AND h.to_status_id = b.status_id
+        ), b.created_at) AS current_status_entered_at
+
+      FROM base b
+    )
+    SELECT
+      m.id,
+      m.title,
+      m.status_id,
+      m.status_code,
+      m.status_name,
+      m.type_name,
+      m.priority_name,
+      u.full_name AS assignee_name,
+      u.username AS assignee_username,
+      m.created_at,
+      m.closed_at,
+      m.end_at,
+
+-- Sin asignar:
+-- Solo acumula si:
+-- 1) llegó a ASSIGNED => hasta first_assigned_at
+-- 2) NO llegó a ASSIGNED pero el estado actual ES UNASSIGNED => hasta end_at
+ROUND(
+  CASE
+    WHEN m.first_assigned_at IS NOT NULL
+      THEN EXTRACT(EPOCH FROM (m.first_assigned_at - m.created_at)) / 3600.0
+    WHEN UPPER(m.status_code) = 'UNASSIGNED'
+      THEN EXTRACT(EPOCH FROM (m.end_at - m.created_at)) / 3600.0
+    ELSE 0
+  END
+, 2) AS unassigned_h,
+
+-- Asignado:
+-- Solo acumula si:
+-- 1) llegó a IN_PROGRESS => (first_in_progress_at - first_assigned_at)
+-- 2) NO llegó a IN_PROGRESS pero estado actual ES ASSIGNED => (end_at - first_assigned_at)
+ROUND(
+  CASE
+    WHEN m.first_assigned_at IS NULL THEN 0
+    WHEN m.first_in_progress_at IS NOT NULL
+      THEN EXTRACT(EPOCH FROM (m.first_in_progress_at - m.first_assigned_at)) / 3600.0
+    WHEN UPPER(m.status_code) = 'ASSIGNED'
+      THEN EXTRACT(EPOCH FROM (m.end_at - m.first_assigned_at)) / 3600.0
+    ELSE 0
+  END
+, 2) AS assigned_h,
+
+-- En progreso:
+-- Solo acumula si estado actual ES IN_PROGRESS (no se reparte a futuros estados)
+ROUND(
+  CASE
+    WHEN m.first_in_progress_at IS NULL THEN 0
+    WHEN UPPER(m.status_code) = 'IN_PROGRESS'
+      THEN EXTRACT(EPOCH FROM (m.end_at - m.first_in_progress_at)) / 3600.0
+    ELSE 0
+  END
+, 2) AS in_progress_h,
+
+      ROUND(EXTRACT(EPOCH FROM (m.end_at - m.created_at)) / 3600.0, 2) AS total_h,
+
+      ROUND(EXTRACT(EPOCH FROM (m.end_at - m.current_status_entered_at)) / 3600.0, 2) AS current_status_h
+
+    FROM marks m
+    LEFT JOIN users u ON u.id = m.assignee_id
+    ORDER BY current_status_h DESC, total_h DESC, m.created_at ASC;
+  `;
+
+    const params = [
+        dateFrom,
+        dateTo,
+        statusId || null,
+        requestTypeId || null,
+        priorityId || null,
+        assigneeId || null,
+        includeClosed === true, // boolean
+    ];
+
+    const { rows } = await pool.query(sql, params);
+    return rows;
+}
+
+async function getRequestTimesLiveStats({ dateFrom, dateTo, statusId, requestTypeId, priorityId, assigneeId }) {
+  const sql = `
+    WITH base AS (
+      SELECT
+        r.id,
+        EXTRACT(EPOCH FROM (NOW() - r.created_at)) / 3600.0 AS total_h
+      FROM requests r
+      WHERE
+        r.is_active = true
+        AND r.closed_at IS NULL
+        AND r.created_at >= $1::timestamptz
+        AND r.created_at <= $2::timestamptz
+        AND ($3::uuid IS NULL OR r.status_id = $3)
+        AND ($4::uuid IS NULL OR r.request_type_id = $4)
+        AND ($5::uuid IS NULL OR r.priority_id = $5)
+        AND (
+          $6::uuid IS NULL OR EXISTS (
+            SELECT 1
+            FROM request_assignments ra
+            WHERE ra.request_id = r.id
+              AND ra.is_active = true
+              AND ra.assigned_to = $6
+          )
+        )
+    )
+    SELECT
+      ROUND(MIN(total_h)::numeric, 2) AS min_h,
+      ROUND(MAX(total_h)::numeric, 2) AS max_h,
+      ROUND(AVG(total_h)::numeric, 2) AS avg_h
+    FROM base
+    WHERE total_h IS NOT NULL
+  `;
+
   const params = [
     dateFrom,
     dateTo,
@@ -859,32 +1186,25 @@ async function getProcessTimeStats({
     requestTypeId || null,
     priorityId || null,
     assigneeId || null,
-    inProgressStatusCode
   ];
 
   const { rows } = await pool.query(sql, params);
   return rows[0];
 }
 
-// module.exports = {
-//     getOverviewKpis,
-//     getBacklogByStatus,
-//     getThroughput,
-//     getTimeStats,
-//     getStatusTime,
-//     getWorkloadBacklogByAssignee,
-//     getWorkloadActivityByAssignee
-// };
-
 module.exports = {
-  getOverviewKpis,
-  getBacklogByStatus,
-  getThroughput,
-  getTimeStats,
-  getStatusTime,
-//   getWorkload,
-  getDistributionOpen,
-  getDistributionCreated,
-  getDistributionClosed,
-  getProcessTimeStats
+    getOverviewKpis,
+    getBacklogByStatus,
+    getThroughput,
+    getTimeStats,
+    getStatusTime,
+    getWorkloadBacklogByAssignee,
+    getWorkloadActivityByAssignee,
+    getDistributionOpen,
+    getDistributionCreated,
+    getDistributionClosed,
+    getProcessTimeStats,
+    getRequestTimes,
+    getRequestTimesLive,
+    getRequestTimesLiveStats
 };
