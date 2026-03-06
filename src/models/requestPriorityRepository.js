@@ -15,7 +15,6 @@ const findAll = async ({ limit, offset }) => {
   const query = `
     SELECT ${PRIORITY_COLUMNS}
     FROM request_priorities
-    WHERE is_active = TRUE
     ORDER BY sort_order ASC, name ASC
     LIMIT $1 OFFSET $2
   `;

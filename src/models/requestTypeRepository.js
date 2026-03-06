@@ -15,7 +15,6 @@ const findAll = async ({ limit, offset }) => {
   const query = `
     SELECT ${REQUEST_TYPE_COLUMNS}
     FROM request_types
-    WHERE is_active = TRUE
     ORDER BY name ASC
     LIMIT $1 OFFSET $2
   `;

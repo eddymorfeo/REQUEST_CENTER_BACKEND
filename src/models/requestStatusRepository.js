@@ -16,7 +16,6 @@ const findAll = async ({ limit, offset }) => {
   const query = `
     SELECT ${STATUS_COLUMNS}
     FROM request_status
-    WHERE is_active = TRUE
     ORDER BY sort_order ASC, name ASC
     LIMIT $1 OFFSET $2
   `;
